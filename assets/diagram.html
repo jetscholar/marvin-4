@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-S3 Marvin-4 Wiring Diagram - CORRECTED</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: #fff;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(45deg, #fff, #e0e0e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .diagram-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 40px 0;
+            min-height: 600px;
+        }
+        
+        .board {
+            background: #2d3748;
+            border: 3px solid #4a5568;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            position: relative;
+            transform: perspective(1000px) rotateX(5deg);
+        }
+        
+        .esp32-s3 {
+            width: 320px;
+            height: 520px;
+            background: linear-gradient(135deg, #1a202c, #2d3748);
+        }
+        
+        .board-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            color: #e2e8f0;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        
+        .pin-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 6px 0;
+            align-items: center;
+        }
+        
+        .pin {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: bold;
+            color: #000;
+            text-shadow: none;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .pin:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+        }
+        
+        .pin-power { background: linear-gradient(135deg, #f56565, #e53e3e); }
+        .pin-ground { background: linear-gradient(135deg, #2d3748, #1a202c); color: #fff !important; }
+        .pin-gpio { background: linear-gradient(135deg, #48bb78, #38a169); }
+        .pin-i2s { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+        .pin-i2c { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .pin-pwm { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .pin-unused { background: linear-gradient(135deg, #a0aec0, #718096); }
+        .pin-conflict { background: linear-gradient(135deg, #f56565, #c53030); color: #fff !important; }
+        
+        .pin-label {
+            font-size: 10px;
+            margin: 0 8px;
+            min-width: 80px;
+        }
+        
+        .pin-label.left {
+            text-align: right;
+        }
+        
+        .pin-label.right {
+            text-align: left;
+        }
+        
+        .connection-line {
+            position: absolute;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 2px;
+            z-index: 10;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+        
+        .component {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #4a5568;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px;
+            text-align: center;
+            backdrop-filter: blur(5px);
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+        }
+        
+        .component:hover {
+            transform: translateY(0px);
+            box-shadow: 0 6px 25px rgba(255, 255, 255, 0.1);
+        }
+        
+        .component h3 {
+            margin: 0 0 10px 0;
+            color: #e2e8f0;
+            font-size: 1.1em;
+        }
+        
+        .wiring-table {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 30px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .wiring-table h2 {
+            text-align: center;
+            margin-bottom: 25px;
+            color: #e2e8f0;
+            font-size: 1.8em;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        th, td {
+            padding: 15px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        th {
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: bold;
+            color: #e2e8f0;
+            font-size: 1.1em;
+        }
+        
+        td {
+            color: #cbd5e0;
+        }
+        
+        .device-inmp441 { color: #ed8936; font-weight: bold; }
+        .device-aht10 { color: #667eea; font-weight: bold; }
+        .device-buzzer { color: #f093fb; font-weight: bold; }
+        .device-led { color: #48bb78; font-weight: bold; }
+        .corrected { background-color: rgba(72, 187, 120, 0.2); }
+        .warning { background-color: rgba(245, 101, 101, 0.2); }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 15px;
+            border-radius: 25px;
+            backdrop-filter: blur(5px);
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .breadboard-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 30px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .breadboard-section h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #e2e8f0;
+        }
+        
+        .breadboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .component-detail {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .component-detail h4 {
+            margin: 0 0 15px 0;
+            color: #e2e8f0;
+            font-size: 1.2em;
+        }
+        
+        .pin-detail {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 5px;
+        }
+        
+        .pin-name {
+            font-weight: bold;
+            color: #cbd5e0;
+        }
+        
+        .pin-connection {
+            color: #a0aec0;
+            font-family: monospace;
+        }
+        
+        .voltage-warning {
+            background: rgba(245, 101, 101, 0.1);
+            border: 1px solid #f56565;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #fed7d7;
+        }
+        
+        .voltage-warning strong {
+            color: #f56565;
+        }
+        
+        .correction-notice {
+            background: rgba(72, 187, 120, 0.1);
+            border: 2px solid #48bb78;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #c6f6d5;
+        }
+        
+        .correction-notice strong {
+            color: #48bb78;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Marvin-4 ESP32-S3 Wiring Diagram - CORRECTED</h1>
+        
+        <div class="correction-notice">
+            <strong>✅ UPDATED:</strong> This diagram has been corrected to use proper ESP32-S3 GPIO assignments that avoid flash/PSRAM conflicts and use the correct default I2C pins.
+        </div>
+        
+        <div class="voltage-warning">
+            <strong>⚡ IMPORTANT:</strong> All components operate at 3.3V. Connect VDD/VCC to 3.3V pin, NOT 5V pin. 
+            ESP32-S3 GPIO pins are NOT 5V tolerant!
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color pin-power"></div>
+                <span>Power (3.3V)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color pin-ground"></div>
+                <span>Ground</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color pin-i2s"></div>
+                <span>I2S Audio</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color pin-i2c"></div>
+                <span>I2C Communication</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color pin-pwm"></div>
+                <span>PWM/LED</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color pin-conflict"></div>
+                <span>⚠️ Avoided (Flash/PSRAM)</span>
+            </div>
+        </div>
+
+        <div class="diagram-container">
+            <div class="board esp32-s3">
+                <div class="board-title">ESP32-S3-DevKitC-1 (N16R8)</div>
+                <div style="display: flex; justify-content: space-between;">
+                    <div class="left-pins">
+                        <div class="pin-row"><div class="pin pin-power" title="3.3V Power">3V3</div><div class="pin-label left">3.3V Power</div></div>
+                        <div class="pin-row"><div class="pin pin-ground" title="Ground">GND</div><div class="pin-label left">Ground</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="EN - Reset">RST</div><div class="pin-label left">Reset/Enable</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO0 - Strapping">0</div><div class="pin-label left">GPIO0 (Boot)</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO1">1</div><div class="pin-label left">GPIO1</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO2">2</div><div class="pin-label left">GPIO2</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO3">3</div><div class="pin-label left">GPIO3</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO4">4</div><div class="pin-label left">GPIO4</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO5">5</div><div class="pin-label left">GPIO5</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO6">6</div><div class="pin-label left">GPIO6</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO7">7</div><div class="pin-label left">GPIO7</div></div>
+                        <div class="pin-row"><div class="pin pin-i2c" title="GPIO8 - I2C SDA (DEFAULT)">8</div><div class="pin-label left">🌡️ I2C SDA</div></div>
+                        <div class="pin-row"><div class="pin pin-i2c" title="GPIO9 - I2C SCL (DEFAULT)">9</div><div class="pin-label left">🌡️ I2C SCL</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO10">10</div><div class="pin-label left">GPIO10</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO11">11</div><div class="pin-label left">GPIO11</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO12">12</div><div class="pin-label left">GPIO12</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO13">13</div><div class="pin-label left">GPIO13</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO14">14</div><div class="pin-label left">GPIO14</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO15">15</div><div class="pin-label left">GPIO15</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO16">16</div><div class="pin-label left">GPIO16</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO17">17</div><div class="pin-label left">GPIO17</div></div>
+                        <div class="pin-row"><div class="pin pin-pwm" title="GPIO18 - Buzzer PWM">18</div><div class="pin-label left">🔊 Buzzer PWM</div></div>
+                        <div class="pin-row"><div class="pin pin-i2s" title="GPIO19 - I2S Serial Data">19</div><div class="pin-label left">🎤 I2S SD</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO20">20</div><div class="pin-label left">GPIO20</div></div>
+                        <div class="pin-row"><div class="pin pin-unused" title="GPIO21">21</div><div class="pin-label left">GPIO21</div></div>
+                    </div>
+                    
+                    <div class="right-pins">
+                        <div class="pin-row"><div class="pin-label right">💡 LED (RGB)</div><div class="pin pin-pwm" title="GPIO48 - Onboard RGB LED">48</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO47</div><div class="pin pin-unused" title="GPIO47">47</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO46</div><div class="pin pin-unused" title="GPIO46">46</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO45</div><div class="pin pin-unused" title="GPIO45">45</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO44</div><div class="pin pin-unused" title="GPIO44">44</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO43</div><div class="pin pin-unused" title="GPIO43">43</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO42</div><div class="pin pin-unused" title="GPIO42">42</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO41</div><div class="pin pin-unused" title="GPIO41">41</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO40</div><div class="pin pin-unused" title="GPIO40">40</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO39</div><div class="pin pin-unused" title="GPIO39">39</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO38</div><div class="pin pin-unused" title="GPIO38">38</div></div>
+                        <div class="pin-row"><div class="pin-label right">🎤 I2S WS</div><div class="pin pin-i2s" title="GPIO37 - I2S Word Select">37</div></div>
+                        <div class="pin-row"><div class="pin-label right">🎤 I2S SCK</div><div class="pin pin-i2s" title="GPIO36 - I2S Serial Clock">36</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO35</div><div class="pin pin-unused" title="GPIO35">35</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO34</div><div class="pin pin-unused" title="GPIO34">34</div></div>
+                        <div class="pin-row"><div class="pin-label right">GPIO33</div><div class="pin pin-unused" title="GPIO33">33</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM D</div><div class="pin pin-conflict" title="GPIO32 - PSRAM (AVOID)">32</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM Q</div><div class="pin pin-conflict" title="GPIO31 - PSRAM (AVOID)">31</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM CLK</div><div class="pin pin-conflict" title="GPIO30 - PSRAM (AVOID)">30</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM CS0</div><div class="pin pin-conflict" title="GPIO29 - PSRAM (AVOID)">29</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM WP</div><div class="pin pin-conflict" title="GPIO28 - PSRAM (AVOID)">28</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM HD</div><div class="pin pin-conflict" title="GPIO27 - PSRAM (AVOID)">27</div></div>
+                        <div class="pin-row"><div class="pin-label right">⚠️ PSRAM CS1</div><div class="pin pin-conflict" title="GPIO26 - PSRAM (AVOID)">26</div></div>
+                        <div class="pin-row"><div class="pin-label right">5V Power</div><div class="pin pin-power" title="5V Power">5V</div></div>
+                        <div class="pin-row"><div class="pin-label right">Ground</div><div class="pin pin-ground" title="Ground">GND</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="wiring-table">
+            <h2>📋 CORRECTED Wiring Table</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Component</th>
+                        <th>Component Pin</th>
+                        <th>ESP32-S3 Pin</th>
+                        <th>GPIO</th>
+                        <th>Function</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="device-inmp441">INMP441</td>
+                        <td>VDD</td>
+                        <td>3.3V</td>
+                        <td>-</td>
+                        <td>Power Supply</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr>
+                        <td class="device-inmp441">INMP441</td>
+                        <td>GND</td>
+                        <td>GND</td>
+                        <td>-</td>
+                        <td>Ground</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr class="corrected">
+                        <td class="device-inmp441">INMP441</td>
+                        <td>SCK</td>
+                        <td>GPIO36</td>
+                        <td>36</td>
+                        <td>I2S Serial Clock</td>
+                        <td>🔧 CHANGED (was 26)</td>
+                    </tr>
+                    <tr class="corrected">
+                        <td class="device-inmp441">INMP441</td>
+                        <td>WS</td>
+                        <td>GPIO37</td>
+                        <td>37</td>
+                        <td>I2S Word Select</td>
+                        <td>🔧 CHANGED (was 25)</td>
+                    </tr>
+                    <tr>
+                        <td class="device-inmp441">INMP441</td>
+                        <td>SD</td>
+                        <td>GPIO19</td>
+                        <td>19</td>
+                        <td>I2S Serial Data</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr>
+                        <td class="device-inmp441">INMP441</td>
+                        <td>L/R</td>
+                        <td>GND</td>
+                        <td>-</td>
+                        <td>Left Channel Select</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr style="border-top: 2px solid rgba(255,255,255,0.2);">
+                        <td class="device-aht10">AHT10</td>
+                        <td>VCC</td>
+                        <td>3.3V</td>
+                        <td>-</td>
+                        <td>Power Supply</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr>
+                        <td class="device-aht10">AHT10</td>
+                        <td>GND</td>
+                        <td>GND</td>
+                        <td>-</td>
+                        <td>Ground</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr class="corrected">
+                        <td class="device-aht10">AHT10</td>
+                        <td>SDA</td>
+                        <td>GPIO8</td>
+                        <td>8</td>
+                        <td>I2C Data (DEFAULT)</td>
+                        <td>🔧 CHANGED (was 21)</td>
+                    </tr>
+                    <tr class="corrected">
+                        <td class="device-aht10">AHT10</td>
+                        <td>SCL</td>
+                        <td>GPIO9</td>
+                        <td>9</td>
+                        <td>I2C Clock (DEFAULT)</td>
+                        <td>🔧 CHANGED (was 22)</td>
+                    </tr>
+                    <tr style="border-top: 2px solid rgba(255,255,255,0.2);">
+                        <td class="device-buzzer">Buzzer</td>
+                        <td>+</td>
+                        <td>GPIO18</td>
+                        <td>18</td>
+                        <td>PWM Signal</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr>
+                        <td class="device-buzzer">Buzzer</td>
+                        <td>-</td>
+                        <td>GND</td>
+                        <td>-</td>
+                        <td>Ground</td>
+                        <td>✅ Correct</td>
+                    </tr>
+                    <tr style="border-top: 2px solid rgba(255,255,255,0.2);">
+                        <td class="device-led">LED</td>
+                        <td>Anode (+)</td>
+                        <td>GPIO48</td>
+                        <td>48</td>
+                        <td>RGB LED (Onboard)</td>
+                        <td>🔧 CHANGED (was 27)</td>
+                    </tr>
+                    <tr>
+                        <td class="device-led">LED</td>
+                        <td>Cathode (-)</td>
+                        <td>GND</td>
+                        <td>-</td>
+                        <td>Ground (built-in)</td>
+                        <td>✅ Onboard LED</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="breadboard-section">
+            <h2>🔧 Component Details & Requirements</h2>
+            <div class="breadboard-grid">
+                <div class="component-detail">
+                    <h4>🎤 INMP441 I2S Microphone</h4>
+                    <div class="pin-detail">
+                        <span class="pin-name">Operating Voltage:</span>
+                        <span class="pin-connection">1.8V - 3.3V</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">Sample Rate:</span>
+                        <span class="pin-connection">16kHz (Marvin-4)</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">Interface:</span>
+                        <span class="pin-connection">I2S Digital</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">Channel:</span>
+                        <span class="pin-connection">Left (L/R → GND)</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">⚠️ Pin Changes:</span>
+                        <span class="pin-connection">SCK: 36, WS: 37, SD: 19</span>
+                    </div>
+                </div>
+
+                <div class="component-detail">
+                    <h4>🌡️ AHT10 Temp/Humidity Sensor</h4>
+                    <div class="pin-detail">
+                        <span class="pin-name">Operating Voltage:</span>
+                        <span class="pin-connection">2.0V - 5.5V</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">Interface:</span>
+                        <span class="pin-connection">I2C (0x38)</span>
+                    </div>
+                    <div class="pin-detail">
+                        <span class="pin-name">Pull-up Resistors:</span>
+                        <span class="pin-connection">4.7kΩ on
