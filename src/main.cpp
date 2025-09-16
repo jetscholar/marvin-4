@@ -9,7 +9,8 @@
 #include "frontend_params.h"	// exported by the notebook
 #include "AudioProcessor.h"
 #include "WakeWordDetector.h"
-
+#include "esp_heap_caps.h"
+extern "C" bool esp_psram_is_initialized(void);
 // ========= Derived frame sizing from frontend_params =========
 #define AP_FRAME_SAMPLES ((KWS_SAMPLE_RATE_HZ * KWS_FRAME_MS) / 1000)
 
@@ -49,6 +50,13 @@ void setupI2S() {
 	i2s_zero_dma_buffer(I2S_NUM_0);
 }
 
+static inline float frame_rms(const int16_t* x, size_t n) {
+	long long s = 0;
+	for (size_t i = 0; i < n; ++i) { long v = x[i]; s += v * v; }
+	return sqrtf((float)s / (float)n);
+}
+
+
 // ========= Helpers =========
 void beepAndFlash() {
 	digitalWrite(LED_PIN, HIGH);
@@ -58,10 +66,20 @@ void beepAndFlash() {
 	digitalWrite(BUZZER_PIN, LOW);
 }
 
+static void logMem() {
+	size_t psram_free  = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+	size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+	size_t dram_free   = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+	Serial.printf("PSRAM total: %u, free: %u | DRAM free: %u\n",
+                    (unsigned)psram_total, (unsigned)psram_free, (unsigned)dram_free);
+}
+
 // ========= Setup =========
 void setup() {
 	Serial.begin(115200);
 	delay(200);
+
+    logMem();  // ← expect ~8,388,608 total on N16R8 if PSRAM mounted
 
 	pinMode(LED_PIN, OUTPUT);
 	pinMode(BUZZER_PIN, OUTPUT);
@@ -122,6 +140,14 @@ void loop() {
 		Serial.println("⚠️ Short I2S read");
 		return;
 	}
+
+    float rms = frame_rms(audio_frame, AP_FRAME_SAMPLES);
+    if (rms < 200.0f) {  // tune 150-400 by room noise
+        // Skip pushing silence into MFCC ring; optional: slowly decay avg for responsiveness
+        // detector.decay(0.98f); // if you add a small method; otherwise do nothing
+        return;
+    }
+
 
 	// 2) Push frame through MFCC pipeline (ring-buffered internally)
 	if (!processor.processFrame(audio_frame)) {

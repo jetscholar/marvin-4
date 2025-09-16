@@ -16,7 +16,7 @@ public:
 	void predict_full(const float* mfcc_flat, float* probs);
 
 private:
-	// Small helpers
+	// Activations / utils
 	inline float relu(float x) const { return x > 0.0f ? x : 0.0f; }
 	void softmax_(const float* logits, float* out, int n) const;
 
@@ -25,9 +25,11 @@ private:
 	                 const float* k, int Cout,
 	                 float* out, bool same=true) const;
 
-	void bn_inplace_(float* x, int N, const float* gamma,
-	                 const float* beta, const float* mean,
-	                 const float* var, float eps=1e-5f) const;
+	// Proper per-channel BatchNorm on [H,W,C] tensor (NHWC)
+	void bn_hwcn_(float* x, int H, int W, int C,
+	              const float* gamma, const float* beta,
+	              const float* mean,  const float* var,
+	              float eps=1e-5f) const;
 
 	void conv1x1_(const float* in, int H, int W, int Cin,
 	              const float* k, int Cout,
@@ -45,5 +47,6 @@ private:
 };
 
 #endif
+
 
 

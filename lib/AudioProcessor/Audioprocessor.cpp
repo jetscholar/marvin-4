@@ -97,16 +97,15 @@ void AudioProcessor::computeMfcc_(const int16_t* pcm, float* mfcc_row) {
 		real_[i] = 0.0f; imag_[i] = 0.0f;
 	}
 
-	// 2) FFT → magnitude^2 power spectrum
-	fft_.windowing(FFT_WIN_TYP_HAMMING, FFT_FORWARD);	// keeps API flow consistent
-	fft_.compute(FFT_FORWARD);
-	fft_.complexToMagnitude();
-
 	static float power[AP_FFT_BINS];
 	for (int k = 0; k < AP_FFT_BINS; ++k) {
 		float mag = real_[k];
 		power[k] = mag * mag;
 	}
+
+    // 2) FFT → magnitude^2 power spectrum
+    fft_.compute(FFT_FORWARD);
+    fft_.complexToMagnitude();
 
 	// 3) Mel energies (log)
 	float mel[KWS_NUM_MEL];
