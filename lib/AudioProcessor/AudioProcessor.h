@@ -1,60 +1,79 @@
-#ifndef AUDIOPROCESSOR_H
-#define AUDIOPROCESSOR_H
+#ifndef AUDIO_PROCESSOR_H
+#define AUDIO_PROCESSOR_H
 
 #include <Arduino.h>
 #include <ArduinoFFT.h>
 #include <math.h>
-#include "env.h"
+#include "frontend_params.h"	// KWS_* constants
+#include "mfcc_norm.h"			// MFCC_MEAN / MFCC_STD
 
-// WINDOW_SIZE (frame length) must be <= FFT_SIZE
-static_assert(WINDOW_SIZE <= FFT_SIZE, "WINDOW_SIZE must be <= FFT_SIZE");
+// WINDOW & HOP in samples derived from frontend params
+#ifndef KWS_SAMPLE_RATE_HZ
+#error "frontend_params.h must define KWS_SAMPLE_RATE_HZ"
+#endif
 
-// kFftBins = DC..Nyquist
-static constexpr int K_FFT_BINS = (FFT_SIZE / 2) + 1;
+// 30 ms window, 15 ms hop → with fs=16 kHz => 480 & 240 samples.
+// We use the nearest power-of-two FFT (512) with zero-padding.
+#define AP_FRAME_SAMPLES	((KWS_SAMPLE_RATE_HZ * KWS_FRAME_MS) / 1000)	// ~480
+#define AP_HOP_SAMPLES		((KWS_SAMPLE_RATE_HZ * KWS_STRIDE_MS) / 1000)	// ~240
+#define AP_FFT_SIZE			512
+static_assert(KWS_NUM_MFCC == MFCC_NUM_COEFFS, "MFCC coeff count mismatch to mfcc_norm.h");
+
+// FFT bins DC..Nyquist
+static constexpr int AP_FFT_BINS = (AP_FFT_SIZE / 2) + 1;
 
 class AudioProcessor {
 public:
-  AudioProcessor();
+	AudioProcessor();
 
-  // Feed one PCM frame of WINDOW_SIZE samples (int16)
-  // Internally: pre-emphasis -> window -> FFT -> log-mel -> DCT (MFCC)
-  // Then it pushes one MFCC row [MFCC_NUM_COEFFS] into a rolling buffer
-  void processFrame(int16_t* frame);
+	// One-time init
+	bool begin();
 
-  // Copy the current rolling MFCC window as float, flattened to [frames * coeffs]
-  // Layout: oldest ... newest (what most KWS models expect)
-  void copyMfccWindowFloat(float* out_flat) const;
+	// Process one PCM frame of AP_FRAME_SAMPLES int16
+	// (You should call this every STRIDE ms with new samples)
+	bool processFrame(const int16_t* pcm);
 
-  // (Debug helper) get last-written MFCC row
-  void getLastMfcc(float* out_row) const;
+	// Copy the current rolling MFCC window as float, flattened:
+	// Layout: oldest ... newest, size = KWS_FRAMES * KWS_NUM_MFCC
+	void copyMfccWindowFloat(float* out_flat) const;
 
 private:
-  // Persistent FFT buffers (avoid stack blowups)
-  ArduinoFFT<float> fft_;
-  float real_[FFT_SIZE];
-  float imag_[FFT_SIZE];
+	// Working buffers (float)
+	ArduinoFFT<float> fft_;
+	float real_[AP_FFT_SIZE];
+	float imag_[AP_FFT_SIZE];
 
-  // Mel & DCT caches
-  bool banks_built_ = false;
-  float mel_weights_[MEL_FILTER_BANKS][K_FFT_BINS];       // triangular filterbank weights
-  float dct_matrix_[MFCC_NUM_COEFFS][MEL_FILTER_BANKS];   // DCT-II
+	// Mel filterbank weights [KWS_NUM_MEL][AP_FFT_BINS]
+	bool mel_ready_ = false;
+	float mel_w_[KWS_NUM_MEL][AP_FFT_BINS];
 
-  // Rolling MFCC window buffer [MFCC_NUM_FRAMES x MFCC_NUM_COEFFS]
-  float mfcc_ring_[MFCC_NUM_FRAMES][MFCC_NUM_COEFFS];
-  int   ring_size_ = MFCC_NUM_FRAMES;
-  int   ring_head_ = 0;  // next write index
-  bool  ring_filled_ = false;
+	// DCT-II matrix [KWS_NUM_MFCC][KWS_NUM_MEL]
+	bool dct_ready_ = false;
+	float dct_[KWS_NUM_MFCC][KWS_NUM_MEL];
 
-  // Steps
-  void buildMelBanks_();
-  void buildDct_();
-  void runFft_(); // uses real_/imag_ in-place
+	// Rolling MFCC ring [KWS_FRAMES][KWS_NUM_MFCC]
+	float mfcc_ring_[KWS_FRAMES][KWS_NUM_MFCC];
+	int ring_head_ = 0;
+	bool ring_full_ = false;
 
-  // One-frame MFCC extraction into dst[MFCC_NUM_COEFFS]
-  void computeMfcc_(int16_t* pcm, float* dst_coeffs);
+	// Steps
+	void buildMel_();
+	void buildDct_();
+
+	inline float hz2mel_(float hz) const {
+		return 2595.0f * log10f(1.0f + hz / 700.0f);
+	}
+	inline float mel2hz_(float mel) const {
+		return 700.0f * (powf(10.0f, mel / 2595.0f) - 1.0f);
+	}
+
+	void computeMfcc_(const int16_t* pcm, float* mfcc_row);
 };
 
 #endif
+
+
+
 
 
 

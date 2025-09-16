@@ -6,22 +6,26 @@
 #include "driver/i2s.h"
 
 #include "env.h"
+#include "frontend_params.h"	// exported by the notebook
 #include "AudioProcessor.h"
 #include "WakeWordDetector.h"
 
-// ========== Globals ==========
+// ========= Derived frame sizing from frontend_params =========
+#define AP_FRAME_SAMPLES ((KWS_SAMPLE_RATE_HZ * KWS_FRAME_MS) / 1000)
+
+// ========= Globals =========
 AudioProcessor processor;
 WakeWordDetector detector(&processor);
 Adafruit_AHTX0 aht;
 
-// Audio frame buffer
-static int16_t audio_frame[WINDOW_SIZE];
+// Audio frame buffer (one analysis frame ≈ 30 ms @ 16 kHz ≈ 480 int16 samples)
+static int16_t audio_frame[AP_FRAME_SAMPLES];
 
-// ========== I2S setup ==========
+// ========= I2S setup =========
 void setupI2S() {
 	const i2s_config_t i2s_config = {
 		.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-		.sample_rate = SAMPLE_RATE,
+		.sample_rate = KWS_SAMPLE_RATE_HZ,
 		.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
 		.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
 		.communication_format = I2S_COMM_FORMAT_STAND_I2S,
@@ -45,16 +49,16 @@ void setupI2S() {
 	i2s_zero_dma_buffer(I2S_NUM_0);
 }
 
-// ========== Helpers ==========
+// ========= Helpers =========
 void beepAndFlash() {
 	digitalWrite(LED_PIN, HIGH);
 	digitalWrite(BUZZER_PIN, HIGH);
-	delay(100);
+	delay(120);
 	digitalWrite(LED_PIN, LOW);
 	digitalWrite(BUZZER_PIN, LOW);
 }
 
-// ========== Setup ==========
+// ========= Setup =========
 void setup() {
 	Serial.begin(115200);
 	delay(200);
@@ -91,7 +95,15 @@ void setup() {
 	setupI2S();
 	Serial.println("✅ INMP441 I2S initialized");
 
-	// Detector
+	// App params log (from model export)
+	Serial.printf("KWS fs=%dHz frames=%d mfcc=%d mel=%d classes=%d idx=%d thr=%.3f\n",
+		KWS_SAMPLE_RATE_HZ, KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_MEL,
+		KWS_NUM_CLASSES, KWS_LABEL_MARVIN_IDX, KWS_TRIGGER_THRESHOLD);
+
+	// DSP / model init
+	if (!processor.begin()) {
+		Serial.println("❌ AudioProcessor init failed");
+	}
 	if (!detector.init()) {
 		Serial.println("❌ WakeWordDetector init failed");
 	} else {
@@ -99,11 +111,11 @@ void setup() {
 	}
 }
 
-// ========== Loop ==========
+// ========= Loop =========
 void loop() {
 	ArduinoOTA.handle();
 
-	// 1) Read audio samples into frame
+	// 1) Read one analysis frame from I2S
 	size_t bytes_read = 0;
 	i2s_read(I2S_NUM_0, audio_frame, sizeof(audio_frame), &bytes_read, portMAX_DELAY);
 	if (bytes_read < sizeof(audio_frame)) {
@@ -111,20 +123,24 @@ void loop() {
 		return;
 	}
 
-	// 2) Feed to processor
-	processor.processFrame(audio_frame);
-
-	// 3) Run detection
-	float conf = detector.detect();
-	float avg  = detector.getAverageConfidence();
-	Serial.printf("Frame=%.3f Avg=%.3f\n", conf, avg);
-
-	// 4) Feedback if detected
-	if (conf > detector.getThreshold()) {
-		beepAndFlash();
+	// 2) Push frame through MFCC pipeline (ring-buffered internally)
+	if (!processor.processFrame(audio_frame)) {
+		Serial.println("⚠️ processFrame failed");
+		return;
 	}
 
-	// 5) Sensor telemetry (every second)
+	// 3) Run detection (probability for 'marvin'), then EMA
+	float p = detector.detect();
+	float avg = detector.getAverageConfidence();
+	Serial.printf("p=%.3f avg=%.3f\n", p, avg);
+
+	// 4) Feedback if threshold crossed (from frontend_params.h)
+	if (avg >= detector.getThreshold()) {
+		beepAndFlash();
+		// Optional: cooldown logic can be added here if needed
+	}
+
+	// 5) Sensor telemetry (every 1s)
 	static unsigned long last_sensor = 0;
 	if (millis() - last_sensor > 1000) {
 		sensors_event_t hum, temp;
@@ -134,6 +150,7 @@ void loop() {
 		last_sensor = millis();
 	}
 }
+
 
 
 

@@ -1,4 +1,3 @@
 #include "mfcc_buffer.h"
+int8_t mfcc_buffer[KWS_FRAMES * KWS_NUM_MFCC] = {0};
 
-// Definition
-int8_t mfcc_buffer[MFCC_NUM_FRAMES * MFCC_NUM_COEFFS] = {0};

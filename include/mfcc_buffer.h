@@ -1,10 +1,5 @@
-#ifndef MFCC_BUFFER_H
-#define MFCC_BUFFER_H
+#pragma once
+#include <stdint.h>
+#include "frontend_params.h"  // provides KWS_FRAMES, KWS_NUM_MFCC
+extern int8_t mfcc_buffer[KWS_FRAMES * KWS_NUM_MFCC];
 
-#include "env.h"
-#include <Arduino.h>
-
-// Global buffer for MFCC features (flattened [frames * coeffs])
-extern int8_t mfcc_buffer[MFCC_NUM_FRAMES * MFCC_NUM_COEFFS];
-
-#endif
