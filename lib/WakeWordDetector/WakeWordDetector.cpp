@@ -1,24 +1,30 @@
 #include "WakeWordDetector.h"
 
-WakeWordDetector::WakeWordDetector(AudioProcessor* ap) : ap_(ap) {}
+bool WakeWordDetector::detect_once(float& p_out, float& avg_out) {
+	// 1) Extract MFCCs (float, normalized like in training)
+	static float mfcc_f[KWS_FRAMES * KWS_NUM_MFCC];
+	processor.computeMFCCFloat(mfcc_f);
 
-bool WakeWordDetector::init() {
-	return model_.begin();
-}
+	// 2) Inference
+	float probs[KWS_NUM_CLASSES];
+	model.predict_full(mfcc_f, probs);
 
-float WakeWordDetector::detect() {
-	static float mfcc_flat[KWS_FRAMES * KWS_NUM_MFCC];
-	ap_->copyMfccWindowFloat(mfcc_flat);
+	// 3) Wake probability and smoothing
+	const float pWake = probs[WAKE_CLASS_INDEX];
+	ema.add(pWake);
 
-	const float p = model_.predict_proba(mfcc_flat);
-	avg_ = alpha_ * p + (1.0f - alpha_) * avg_;
-
-	if (avg_ >= KWS_TRIGGER_THRESHOLD) {
-		// You can guard with a cooldown counter if you want to avoid re-triggers
-		// Serial.printf("Wake! p=%.3f avg=%.3f\n", p, avg_);
+	// 4) 1 Hz logging
+	const uint32_t now = millis();
+	if (now - lastDumpMs > 1000) {
+		lastDumpMs = now;
+		Serial.printf("p=%.3f avg=%.3f\n", pWake, ema.avg());
 	}
-	return p;
+
+	p_out   = pWake;
+	avg_out = ema.avg();
+	return (ema.avg() > WAKE_PROB_THRESH);
 }
+
 
 
 

@@ -1,35 +1,30 @@
-#ifndef MANUAL_DSCNN_H
-#define MANUAL_DSCNN_H
-
+#pragma once
 #include <Arduino.h>
-#include "frontend_params.h"	// KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_CLASSES
+#include "frontend_params.h"   // KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_CLASSES
 
 class ManualDSCNN {
 public:
 	ManualDSCNN() = default;
-	bool begin();	// no-op (kept for symmetry)
+	bool begin();  // no-op, kept for API symmetry
 
-	// Return probability (0..1) of "marvin" (index 0).
-	float predict_proba(const float* mfcc_flat);
-
-	// Fill probs[ KWS_NUM_CLASSES ] with softmax outputs.
+	// Full forward pass: mfcc_flat shape = KWS_FRAMES * KWS_NUM_MFCC
 	void predict_full(const float* mfcc_flat, float* probs);
 
-private:
-	// Activations / utils
-	inline float relu(float x) const { return x > 0.0f ? x : 0.0f; }
-	void softmax_(const float* logits, float* out, int n) const;
+	// Convenience: returns probability of the wake class (index 0 by default)
+	float predict_proba(const float* mfcc_flat);
 
-	// Layers
+private:
+	// --- primitive ops ---
+	void softmax_(const float* z, float* out, int n) const;
+
 	void conv2d_3x3_(const float* in, int H, int W, int Cin,
 	                 const float* k, int Cout,
-	                 float* out, bool same=true) const;
+	                 float* out, bool same) const;
 
-	// Proper per-channel BatchNorm on [H,W,C] tensor (NHWC)
 	void bn_hwcn_(float* x, int H, int W, int C,
 	              const float* gamma, const float* beta,
 	              const float* mean,  const float* var,
-	              float eps=1e-5f) const;
+	              float eps) const;
 
 	void conv1x1_(const float* in, int H, int W, int Cin,
 	              const float* k, int Cout,
@@ -42,11 +37,13 @@ private:
 	                     float* out) const;
 
 	void dense_(const float* x, int N,
-	            const float* W, const float* b, int M,
-	            float* y) const;
+                const float* W, const float* b, int M,
+                float* y) const;
+
+	static inline float relu(float x) { return x > 0.f ? x : 0.f; }
 };
 
-#endif
+
 
 
 

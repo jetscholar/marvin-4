@@ -1,34 +1,52 @@
-#ifndef WAKEWORDDETECTOR_H
-#define WAKEWORDDETECTOR_H
-
+#pragma once
 #include <Arduino.h>
 #include "frontend_params.h"
 #include "AudioProcessor.h"
 #include "ManualDSCNN.h"
 
-class WakeWordDetector {
+// Adjust if your labels.txt places the wake class elsewhere.
+#ifndef WAKE_CLASS_INDEX
+#define WAKE_CLASS_INDEX 0
+#endif
+
+#ifndef WAKE_PROB_THRESH
+#define WAKE_PROB_THRESH 0.34f
+#endif
+
+class EMA {
 public:
-	// Pass a reference to the AudioProcessor used in main loop
-	WakeWordDetector(AudioProcessor* ap);
-	bool init();
-
-	// Runs one detection step; returns current marvin probability
-	float detect();
-
-	// Smoothed probability (EMA)
-	float getAverageConfidence() const { return avg_; }
-
-	// Threshold from frontend_params.h
-	float getThreshold() const { return KWS_TRIGGER_THRESHOLD; }
-
+	explicit EMA(float a = 0.1f) : alpha(a), inited(false), value(0.f) {}
+	inline void reset() { inited = false; value = 0.f; }
+	inline void add(float x) {
+		if (!inited) { value = x; inited = true; }
+		else { value = alpha * x + (1.f - alpha) * value; }
+	}
+	inline float avg() const { return value; }
 private:
-	AudioProcessor* ap_ = nullptr;
-	ManualDSCNN model_;
-	float avg_ = 0.0f;
-	const float alpha_ = 0.2f;	// smoothing factor
+	float alpha;
+	bool  inited;
+	float value;
 };
 
-#endif
+class WakeWordDetector {
+public:
+	WakeWordDetector(AudioProcessor& proc) : processor(proc) {}
+
+	bool init() { ema.reset(); return model.begin(); }
+
+	// Runs one inference. Returns true if smoothed prob crosses threshold.
+	bool detect_once(float& p_out, float& avg_out);
+
+	inline float getAverageConfidence() const { return ema.avg(); }
+	inline float getThreshold() const { return WAKE_PROB_THRESH; }
+
+private:
+	AudioProcessor& processor;
+	ManualDSCNN     model;
+	EMA             ema { 0.08f };
+	uint32_t        lastDumpMs = 0;
+};
+
 
 
 

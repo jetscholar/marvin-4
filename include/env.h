@@ -37,6 +37,11 @@
 #define LED_PIN 2
 #define BUZZER_PIN 41
 
+// ===================== Wake Word Model =====================
+#define WAKE_CLASS_INDEX   0     // <-- set this to the wake word class index from training
+#define WAKE_PROB_THRESH   0.30f // start low to see it trigger; we’ll tune
+
+
 // ===================== Notes =====================
 // Do NOT define MFCC/MEL/FFT sizes here.
 // The model’s exported frontend_params.h provides:
