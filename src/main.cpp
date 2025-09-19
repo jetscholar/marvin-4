@@ -1,126 +1,129 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <ArduinoOTA.h>
 #include <Wire.h>
-#include <Adafruit_AHTX0.h>
-#include "esp_heap_caps.h"
+#include <AHT10.h>
+#include <ArduinoOTA.h>
 
-#include "env.h"					// WIFI_SSID / WIFI_PASS
-#include "frontend_params.h"		// KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_CLASSES
+#include "env.h"
+#include "frontend_params.h"
+
+#include "AudioCapture.h"
 #include "AudioProcessor.h"
+#include "ManualDSCNN.h"
 #include "WakeWordDetector.h"
 
-// ---------- Mem logging ----------
-static void logMem() {
-	size_t psram_free  = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-	size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-	size_t dram_free   = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-	Serial.printf("PSRAM total: %u, free: %u | DRAM free: %u\n",
-	              (unsigned)psram_total, (unsigned)psram_free, (unsigned)dram_free);
-}
+// ====== Globals ======
+static AudioCapture   g_cap;
+static AudioProcessor g_proc;
+static ManualDSCNN    g_net;
+static WakeWordDetector g_det(g_cap, g_proc, g_net);
 
-// ---------- Globals ----------
-AudioProcessor processor;
-WakeWordDetector detector(processor);	// pass by reference (NOT pointer)
-Adafruit_AHTX0 aht;
+static AHT10 g_aht10(AHT10_ADDRESS_0X38);
 
-static uint32_t lastSensorMs = 0;
+static TaskHandle_t task_loop = nullptr;
+static volatile bool ota_active = false;
 
-// ---------- WiFi / OTA ----------
+// ====== WiFi & OTA ======
 static void connectWiFi() {
+	Serial.println("Connecting to WiFi.");
 	WiFi.mode(WIFI_STA);
 	WiFi.config(STATIC_IP, STATIC_GATEWAY, STATIC_SUBNET, STATIC_DNS1, STATIC_DNS2);
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-	Serial.print("Connecting to WiFi");
-	unsigned long t0 = millis();
-	while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-		delay(300);
-		Serial.print(".");
-	}
-	Serial.println();
-	if (WiFi.status() == WL_CONNECTED) {
-		Serial.printf("✅ WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
-	} else {
-		Serial.println("❌ WiFi connect timeout");
-	}
+	while (WiFi.status() != WL_CONNECTED) delay(250);
+	Serial.printf("✅ WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
 }
-
 
 static void setupOTA() {
-	ArduinoOTA.setHostname("Marvin-4-ESP32S3");
-	ArduinoOTA.onStart([](){ Serial.println("OTA Start"); });
+	ArduinoOTA.setPort(OTA_PORT);
+	ArduinoOTA.setHostname(OTA_HOSTNAME);
+	ArduinoOTA.setPassword(OTA_PASSWORD);
+	ArduinoOTA.onStart([]() {
+		ota_active = true;
+		if (task_loop) vTaskDelete(task_loop);
+		Serial.println("OTA Start");
+	});
 	ArduinoOTA.onEnd([](){ Serial.println("\nOTA End"); });
 	ArduinoOTA.onProgress([](unsigned int p, unsigned int t){
-		Serial.printf("OTA Progress: %u%%\r", (p * 100) / t);
+		Serial.printf("OTA Progress: %u%%\r", (p / (t / 100)));
 	});
-	ArduinoOTA.onError([](ota_error_t err){
-		Serial.printf("OTA Error[%u]\n", (unsigned)err);
+	ArduinoOTA.onError([](ota_error_t e){
+		Serial.printf("OTA Error[%u]\n", e);
 	});
 	ArduinoOTA.begin();
-	Serial.printf("🔧 OTA ready on %s.local:3232\n", "Marvin-4-ESP32S3");
+	Serial.printf("🔧 OTA ready on %s:%d\n", OTA_HOSTNAME, OTA_PORT);
 }
 
-// ---------- Setup ----------
+// ====== Worker Task ======
+static void kwsTask(void*) {
+	for (;;) {
+		float p, avg;
+		const bool fired = g_det.detect_once(p, avg);
+		Serial.printf("p=%.3f avg=%.3f\n", p, avg);
+		if (fired) {
+			digitalWrite(LED_PIN, HIGH);
+			delay(200);
+			digitalWrite(LED_PIN, LOW);
+			delay(DETECTION_COOLDOWN_MS);
+		}
+		delay(5);
+	}
+}
+
+// ====== Arduino ======
 void setup() {
 	Serial.begin(115200);
-	delay(200);
-	logMem();
+	pinMode(LED_PIN, OUTPUT);
+	digitalWrite(LED_PIN, LOW);
 
 	connectWiFi();
 	setupOTA();
 
 	// I2C (AHT10)
-	Wire.begin(8, 9, 100000);
-	if (!aht.begin(&Wire)) {
-		Serial.println("⚠️ AHT10 not found");
-	} else {
+	Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+	if (g_aht10.begin() == true) {
 		Serial.println("✅ AHT10 detected");
+	} else {
+		Serial.println("❌ AHT10 not detected");
 	}
 
-	// Audio / I2S
-	if (!processor.begin()) {
-		Serial.println("❌ AudioProcessor begin() failed");
-	} else {
-		Serial.println("✅ INMP441 I2S initialized");
+	// Audio path
+	if (!g_cap.begin()) {
+		Serial.println("❌ I2S init failed"); while (true) delay(1000);
 	}
+	Serial.println("✅ INMP441 I2S initialized");
+	if (!g_proc.begin()) {
+		Serial.println("❌ AudioProcessor init failed"); while (true) delay(1000);
+	}
+	if (!g_net.begin()) {
+		Serial.println("❌ ManualDSCNN init failed"); while (true) delay(1000);
+	}
+	g_det.begin();
 
-	// KWS / Detector
-	if (!detector.init()) {
-		Serial.println("❌ WakeWordDetector init failed");
-	} else {
-		Serial.printf("KWS fs=%dHz frames=%d mfcc=%d mel=%d classes=%d idx=%d thr=%.3f\n",
-			16000, (int)KWS_FRAMES, (int)KWS_NUM_MFCC, 40, (int)KWS_NUM_CLASSES, 0, detector.getThreshold());
-		Serial.println("✅ WakeWordDetector ready");
-	}
+	Serial.printf("KWS fs=%dHz frames=%d mfcc=%d mel=%d classes=%d idx=%d thr=%.3f\n",
+		KWS_SAMPLE_RATE_HZ, KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_MEL, KWS_NUM_CLASSES,
+		WAKE_CLASS_INDEX, WAKE_PROB_THRESH);
+
+	// Start detection task
+	xTaskCreatePinnedToCore(kwsTask, "kwsTask", 16384, nullptr, 1, &task_loop, 1);
 }
 
-// ---------- Loop ----------
+unsigned long last_env = 0;
+
 void loop() {
 	ArduinoOTA.handle();
+	if (ota_active) { delay(1000); return; }
 
-	// Run one inference step (fills prob and smoothed avg)
-	float p = 0.f, avg = 0.f;
-	const bool wake = detector.detect_once(p, avg);
-	if (wake) {
-		Serial.println("🎉 Wake word detected!");
-		// TODO: trigger your action here
-	}
-
-	// Periodic sensor read (every ~2s)
-	const uint32_t now = millis();
-	if (now - lastSensorMs > 2000) {
-		lastSensorMs = now;
-		sensors_event_t hum, temp;
-		if (aht.getEvent(&hum, &temp)) {
-			Serial.printf("🌡️ Temp: %.2f°C  💧 Humidity: %.2f%%\n", temp.temperature, hum.relative_humidity);
+	const unsigned long now = millis();
+	if (now - last_env >= 2000) {
+		last_env = now;
+		const float t = g_aht10.readTemperature();
+		const float h = g_aht10.readHumidity();
+		if (t != AHT10_ERROR && h != AHT10_ERROR) {
+			Serial.printf("🌡️ Temp: %.2f°C  💧 Humidity: %.2f%%\n", t, h);
 		}
 	}
-
-	// Small delay to avoid pegging the CPU; detector itself logs at ~1Hz internally
 	delay(10);
 }
-
 
 
 

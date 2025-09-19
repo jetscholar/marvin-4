@@ -18,7 +18,7 @@
 #define DEBUG_LEVEL 3
 #define ENABLE_SERIAL_PLOT 0
 
-// Detection behavior (cooldown etc). Threshold comes from frontend_params.h
+// Detection behavior
 #define DETECTION_COOLDOWN_MS 2000
 #define COMMAND_LISTEN_DURATION_SEC 5
 #define COMMAND_CONFIDENCE_THRESHOLD 0.30f
@@ -38,13 +38,7 @@
 #define BUZZER_PIN 41
 
 // ===================== Wake Word Model =====================
-#define WAKE_CLASS_INDEX   0     // <-- set this to the wake word class index from training
-#define WAKE_PROB_THRESH   0.30f // start low to see it trigger; we’ll tune
+#define WAKE_CLASS_INDEX   0
+#define WAKE_PROB_THRESH   0.30f
 
-
-// ===================== Notes =====================
-// Do NOT define MFCC/MEL/FFT sizes here.
-// The model’s exported frontend_params.h provides:
-//   KWS_SAMPLE_RATE_HZ, KWS_FRAME_MS, KWS_STRIDE_MS
-//   KWS_NUM_MEL, KWS_NUM_MFCC, KWS_FRAMES
-//   KWS_NUM_CLASSES, KWS_LABEL_MARVIN_IDX, KWS_TRIGGER_THRESHOLD
+// Notes: AP_FRAME_SAMPLES / AP_HOP_SAMPLES come from frontend_params.h only.

@@ -1,20 +1,22 @@
 #pragma once
-#include <Arduino.h>
-#include "frontend_params.h"   // KWS_FRAMES, KWS_NUM_MFCC, KWS_NUM_CLASSES
+#include <stdint.h>
+#include "frontend_params.h"
 
 class ManualDSCNN {
 public:
-	ManualDSCNN() = default;
-	bool begin();  // no-op, kept for API symmetry
+	bool begin();
 
-	// Full forward pass: mfcc_flat shape = KWS_FRAMES * KWS_NUM_MFCC
+	// Convenience overload (fills only probs)
 	void predict_full(const float* mfcc_flat, float* probs);
 
-	// Convenience: returns probability of the wake class (index 0 by default)
+	// Full variant (fills probs and optionally logits if non-null)
+	void predict_full(const float* mfcc_flat, float* probs, float* logits);
+
 	float predict_proba(const float* mfcc_flat);
 
 private:
-	// --- primitive ops ---
+	// ---- math/primitives ----
+	inline float relu(float x) const { return x > 0 ? x : 0; }
 	void softmax_(const float* z, float* out, int n) const;
 
 	void conv2d_3x3_(const float* in, int H, int W, int Cin,
@@ -37,11 +39,10 @@ private:
 	                     float* out) const;
 
 	void dense_(const float* x, int N,
-                const float* W, const float* b, int M,
-                float* y) const;
-
-	static inline float relu(float x) { return x > 0.f ? x : 0.f; }
+	            const float* W, const float* b, int M,
+	            float* y) const;
 };
+
 
 
 

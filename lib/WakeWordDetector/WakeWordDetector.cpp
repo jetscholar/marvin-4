@@ -1,29 +1,56 @@
 #include "WakeWordDetector.h"
+#include <Arduino.h>
+#include "labels.h"
 
-bool WakeWordDetector::detect_once(float& p_out, float& avg_out) {
-	// 1) Extract MFCCs (float, normalized like in training)
-	static float mfcc_f[KWS_FRAMES * KWS_NUM_MFCC];
-	processor.computeMFCCFloat(mfcc_f);
+bool WakeWordDetector::begin() {
+	return cap_.begin() && proc_.begin() && net_.begin();
+}
 
-	// 2) Inference
-	float probs[KWS_NUM_CLASSES];
-	model.predict_full(mfcc_f, probs);
+bool WakeWordDetector::detect_once(float& p_conf, float& p_avg) {
+	int16_t pcm[AP_FRAME_SAMPLES];
 
-	// 3) Wake probability and smoothing
-	const float pWake = probs[WAKE_CLASS_INDEX];
-	ema.add(pWake);
-
-	// 4) 1 Hz logging
-	const uint32_t now = millis();
-	if (now - lastDumpMs > 1000) {
-		lastDumpMs = now;
-		Serial.printf("p=%.3f avg=%.3f\n", pWake, ema.avg());
+	// 1) Capture a frame
+	if (!cap_.readFrame(pcm)) {
+		p_conf = 0.0f; p_avg = conf_avg_;
+		Serial.println(F("WARNING: Zero input to model"));
+		return false;
 	}
 
-	p_out   = pWake;
-	avg_out = ema.avg();
-	return (ema.avg() > WAKE_PROB_THRESH);
+	// 2) Push into processor
+	proc_.processFrame(pcm);
+
+	// 3) Need full window first
+	if (!proc_.hasFullWindow()) {
+		p_conf = 0.0f; p_avg = conf_avg_;
+		return false;
+	}
+
+	// 4) Compute MFCCs (flattened)
+	static float mfcc[KWS_FRAMES * KWS_NUM_MFCC];
+	proc_.computeMFCCFloat(mfcc);
+
+	// 5) Run model
+	float probs[KWS_NUM_CLASSES];
+	net_.predict_full(mfcc, probs);
+
+	p_conf = probs[WAKE_CLASS_INDEX];
+	// smooth avg
+	conf_avg_ = 0.8f * conf_avg_ + 0.2f * p_conf;
+	p_avg = conf_avg_;
+
+	// Optional debug
+	if (DEBUG_LEVEL >= 3) {
+		Serial.printf("PCM_RMS=%.1f MFCC|mean_abs=%.4f p=%.3f avg=%.3f\n",
+			proc_.lastPcmRms(), proc_.lastMfccMeanAbs(), p_conf, p_avg);
+	}
+
+	// 6) Threshold
+	return (p_conf >= WAKE_PROB_THRESH);
 }
+
+
+
+
 
 
 

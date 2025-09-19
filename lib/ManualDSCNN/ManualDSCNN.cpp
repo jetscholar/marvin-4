@@ -1,105 +1,153 @@
 #include "ManualDSCNN.h"
+#include <Arduino.h>
 #include <string.h>
 #include <algorithm>
+#include <math.h>
 
-// Prefer header from /models at project root, with a robust fallback.
-// Add -Imodels to build_flags to take the first path.
-#if __has_include("model_weights_float.h")
-  #include "model_weights_float.h"
-#elif __has_include("../../models/model_weights_float.h")
-  #include "../../models/model_weights_float.h"
-#else
-  #error "model_weights_float.h not found. Put it in /models and add -Imodels to build_flags, or adjust the include path."
-#endif
+// IMPORTANT: with -Imodels, include WITHOUT the "models/" prefix.
+#include "model_weights_float.h"
 
 bool ManualDSCNN::begin() { return true; }
 
 void ManualDSCNN::predict_full(const float* mfcc_flat, float* probs) {
-	const int H0 = KWS_FRAMES;     // e.g., 65
-	const int W0 = KWS_NUM_MFCC;   // e.g., 10
+	float logits[KWS_NUM_CLASSES];
+	predict_full(mfcc_flat, probs, logits);
+}
+
+void ManualDSCNN::predict_full(const float* mfcc_flat, float* probs, float* logits) {
+	// Debug: Check input statistics
+	static int debug_count = 0;
+	if (++debug_count % 200 == 0) {
+		float input_sum = 0.0f, input_min = mfcc_flat[0], input_max = mfcc_flat[0];
+		for (int i = 0; i < KWS_FRAMES * KWS_NUM_MFCC; ++i) {
+			input_sum += mfcc_flat[i];
+			if (mfcc_flat[i] < input_min) input_min = mfcc_flat[i];
+			if (mfcc_flat[i] > input_max) input_max = mfcc_flat[i];
+		}
+		float input_mean = input_sum / (KWS_FRAMES * KWS_NUM_MFCC);
+		Serial.printf("DEBUG: Input stats - mean: %.4f, min: %.4f, max: %.4f\n", input_mean, input_min, input_max);
+	}
+
+	// Input feature map: [H=T=KWS_FRAMES, W=C=KWS_NUM_MFCC, C_in=1]
+	const int H0 = KWS_FRAMES;
+	const int W0 = KWS_NUM_MFCC;
 	const int C0 = 1;
 
-	// 1) 3x3 conv SAME, Cin=1 → Cout=16
-	static float b1[65 * 10 * 16]; // sized for worst-case; compile-time constants ok
+	// After conv3x3: Cout=16
+	static float b1[65 * 10 * 16];	// sized for worst case
+
+	// 1) Conv 3x3 SAME, Cin=1 → Cout=16
 	conv2d_3x3_(mfcc_flat, H0, W0, C0, conv2d_1_w, 16, b1, true);
+
+	// Debug: Check first conv output
+	if (debug_count % 200 == 0) {
+		float conv1_sum = 0.0f;
+		for (int i = 0; i < H0*W0*16; ++i) conv1_sum += fabsf(b1[i]);
+		Serial.printf("DEBUG: Conv1 output sum: %.4f\n", conv1_sum);
+	}
+
+	// BN7 + ReLU
 	bn_hwcn_(b1, H0, W0, 16,
-	         batch_normalization_7_gamma,
-	         batch_normalization_7_beta,
-	         batch_normalization_7_mean,
-	         batch_normalization_7_var, 1e-5f);
+		batch_normalization_7_gamma,
+		batch_normalization_7_beta,
+		batch_normalization_7_mean,
+		batch_normalization_7_var, 1e-5f);
 	for (int i = 0; i < H0*W0*16; ++i) b1[i] = relu(b1[i]);
 
 	// 2) AvgPool 2x2
 	const int H1 = (H0 + 1) / 2;
 	const int W1 = (W0 + 1) / 2;
-	static float p1[(65/2 + 1) * (10/2 + 1) * 16]; // small slack
+	static float p1[(65/2) * (10/2) * 16 + 64];
 	avgpool2x2_(b1, H0, W0, 16, p1);
 
-	// 3) 1x1 PW: 16→24 + BN + ReLU
+	// 3) PW 1x1: 16→24, BN9 + ReLU
 	const int C1 = 24;
-	static float pw1[(65/2 + 1) * (10/2 + 1) * 24];
+	static float pw1[(65/2) * (10/2) * 24 + 64];
 	conv1x1_(p1, H1, W1, 16, b1_pw_w, C1, pw1);
 	bn_hwcn_(pw1, H1, W1, C1,
-	         batch_normalization_9_gamma,
-	         batch_normalization_9_beta,
-	         batch_normalization_9_mean,
-	         batch_normalization_9_var, 1e-5f);
+		batch_normalization_9_gamma,
+		batch_normalization_9_beta,
+		batch_normalization_9_mean,
+		batch_normalization_9_var, 1e-5f);
 	for (int i = 0; i < H1*W1*C1; ++i) pw1[i] = relu(pw1[i]);
 
 	// 4) AvgPool 2x2
 	const int H2 = (H1 + 1) / 2;
 	const int W2 = (W1 + 1) / 2;
-	static float p2[(65/4 + 1) * (10/4 + 1) * 24];
+	static float p2[(65/4) * (10/4) * 24 + 64];
 	avgpool2x2_(pw1, H1, W1, C1, p2);
 
-	// 5) 1x1 PW: 24→32 + BN + ReLU
+	// 5) PW 1x1: 24→32, BN11 + ReLU
 	const int C2 = 32;
-	static float pw2[(65/4 + 1) * (10/4 + 1) * 32];
+	static float pw2[(65/4) * (10/4) * 32 + 64];
 	conv1x1_(p2, H2, W2, C1, b2_pw_w, C2, pw2);
 	bn_hwcn_(pw2, H2, W2, C2,
-	         batch_normalization_11_gamma,
-	         batch_normalization_11_beta,
-	         batch_normalization_11_mean,
-	         batch_normalization_11_var, 1e-5f);
+		batch_normalization_11_gamma,
+		batch_normalization_11_beta,
+		batch_normalization_11_mean,
+		batch_normalization_11_var, 1e-5f);
 	for (int i = 0; i < H2*W2*C2; ++i) pw2[i] = relu(pw2[i]);
 
 	// 6) AvgPool 2x2
 	const int H3 = (H2 + 1) / 2;
 	const int W3 = (W2 + 1) / 2;
-	static float p3[(65/8 + 1) * (10/8 + 1) * 32];
+	static float p3[(65/8) * (10/8) * 32 + 64];
 	avgpool2x2_(pw2, H2, W2, C2, p3);
 
-	// 7) 1x1 PW: 32→48 + BN + ReLU
+	// 7) PW 1x1: 32→48, BN13 + ReLU
 	const int C3 = 48;
-	static float pw3[(65/8 + 1) * (10/8 + 1) * 48];
+	static float pw3[(65/8) * (10/8) * 48 + 64];
 	conv1x1_(p3, H3, W3, C2, b3_pw_w, C3, pw3);
 	bn_hwcn_(pw3, H3, W3, C3,
-	         batch_normalization_13_gamma,
-	         batch_normalization_13_beta,
-	         batch_normalization_13_mean,
-	         batch_normalization_13_var, 1e-5f);
+		batch_normalization_13_gamma,
+		batch_normalization_13_beta,
+		batch_normalization_13_mean,
+		batch_normalization_13_var, 1e-5f);
 	for (int i = 0; i < H3*W3*C3; ++i) pw3[i] = relu(pw3[i]);
 
 	// 8) Global average pooling → [C3]
 	float gap[48];
 	global_avgpool_(pw3, H3, W3, C3, gap);
 
-	// 9) Dense → logits
-	float logits[KWS_NUM_CLASSES];
-	dense_(gap, C3, dense_1_w, dense_1_b, KWS_NUM_CLASSES, logits);
+	// Debug: Check GAP output
+	if (debug_count % 200 == 0) {
+		float gap_sum = 0.0f;
+		for (int i = 0; i < C3; ++i) gap_sum += fabsf(gap[i]);
+		Serial.printf("DEBUG: GAP output sum: %.4f, first few: %.4f %.4f %.4f\n", 
+			gap_sum, gap[0], gap[1], gap[2]);
+	}
 
-	// 10) Softmax → probs
-	softmax_(logits, probs, KWS_NUM_CLASSES);
+	// 9) Dense → logits
+	float local_logits[KWS_NUM_CLASSES];
+	dense_(gap, C3, dense_1_w, dense_1_b, KWS_NUM_CLASSES, local_logits);
+
+	// Debug: Check logits
+	if (debug_count % 200 == 0) {
+		Serial.printf("DEBUG: Logits: %.4f %.4f %.4f\n", 
+			local_logits[0], local_logits[1], local_logits[2]);
+	}
+
+	// 10) Softmax
+	softmax_(local_logits, probs, KWS_NUM_CLASSES);
+
+	// Debug: Check final probabilities
+	if (debug_count % 200 == 0) {
+		Serial.printf("DEBUG: Probs: %.4f %.4f %.4f\n", 
+			probs[0], probs[1], probs[2]);
+	}
+
+	if (logits) {
+		for (int i = 0; i < KWS_NUM_CLASSES; ++i) logits[i] = local_logits[i];
+	}
 }
 
 float ManualDSCNN::predict_proba(const float* mfcc_flat) {
 	float probs[KWS_NUM_CLASSES];
 	predict_full(mfcc_flat, probs);
-	// If your labels.txt has "marvin" at index 0, this returns the wake prob.
-	return probs[0];
+	return probs[0];	// class 0 is wake word
 }
 
-// ====== Primitive ops ======
+// ----------------- primitives -----------------
 void ManualDSCNN::softmax_(const float* z, float* out, int n) const {
 	float m = z[0];
 	for (int i = 1; i < n; ++i) m = std::max(m, z[i]);
@@ -111,11 +159,8 @@ void ManualDSCNN::softmax_(const float* z, float* out, int n) const {
 
 void ManualDSCNN::conv2d_3x3_(const float* in, int H, int W, int Cin,
                               const float* k, int Cout,
-                              float* out, bool same) const {
-	(void)same; // SAME via bounds checks
-	const int out_sz = H * W * Cout;
-	for (int i = 0; i < out_sz; ++i) out[i] = 0.0f;
-
+                              float* out, bool /*same*/) const {
+	memset(out, 0, sizeof(float) * H * W * Cout);
 	for (int y = 0; y < H; ++y) {
 		for (int x = 0; x < W; ++x) {
 			for (int co = 0; co < Cout; ++co) {
@@ -123,7 +168,8 @@ void ManualDSCNN::conv2d_3x3_(const float* in, int H, int W, int Cin,
 				for (int ci = 0; ci < Cin; ++ci) {
 					for (int ky = -1; ky <= 1; ++ky) {
 						for (int kx = -1; kx <= 1; ++kx) {
-							const int iy = y + ky, ix = x + kx;
+							const int iy = y + ky;
+							const int ix = x + kx;
 							if (iy < 0 || ix < 0 || iy >= H || ix >= W) continue;
 							const int wi = ((ky + 1) * 3 + (kx + 1)) * Cin * Cout + ci * Cout + co;
 							const int ii = (iy * W + ix) * Cin + ci;
@@ -177,7 +223,8 @@ void ManualDSCNN::avgpool2x2_(const float* in, int H, int W, int C,
 				float s = 0.0f; int cnt = 0;
 				for (int dy = 0; dy < 2; ++dy) {
 					for (int dx = 0; dx < 2; ++dx) {
-						const int iy = y * 2 + dy, ix = x * 2 + dx;
+						const int iy = y * 2 + dy;
+						const int ix = x * 2 + dx;
 						if (iy < H && ix < W) { s += in[(iy * W + ix) * C + c]; cnt++; }
 					}
 				}
@@ -208,6 +255,8 @@ void ManualDSCNN::dense_(const float* x, int N,
 		y[m] = acc;
 	}
 }
+
+
 
 
 
