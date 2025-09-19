@@ -1,50 +1,43 @@
-#pragma once
+#ifndef MANUALDSCNN_H
+#define MANUALDSCNN_H
+
 #include <stdint.h>
 #include "frontend_params.h"
 
 class ManualDSCNN {
 public:
+	ManualDSCNN();
 	bool begin();
-
-	// Convenience overload (fills only probs)
-	void predict_full(const float* mfcc_flat, float* probs);
-
-	// Full variant (fills probs and optionally logits if non-null)
-	void predict_full(const float* mfcc_flat, float* probs, float* logits);
-
+	void predict_full(const float* mfcc_flat, float* probs, float* logits = nullptr);
 	float predict_proba(const float* mfcc_flat);
 
 private:
-	// ---- math/primitives ----
-	inline float relu(float x) const { return x > 0 ? x : 0; }
-	void softmax_(const float* z, float* out, int n) const;
-
-	void conv2d_3x3_(const float* in, int H, int W, int Cin,
-	                 const float* k, int Cout,
-	                 float* out, bool same) const;
-
-	void bn_hwcn_(float* x, int H, int W, int C,
-	              const float* gamma, const float* beta,
-	              const float* mean,  const float* var,
-	              float eps) const;
-
-	void conv1x1_(const float* in, int H, int W, int Cin,
-	              const float* k, int Cout,
-	              float* out) const;
-
-	void avgpool2x2_(const float* in, int H, int W, int C,
-	                 float* out) const;
-
-	void global_avgpool_(const float* in, int H, int W, int C,
-	                     float* out) const;
-
-	void dense_(const float* x, int N,
-	            const float* W, const float* b, int M,
-	            float* y) const;
+	// Conv1: Depthwise 3x3x1x16
+	float conv1_weights[3][3][1][16];
+	float conv1_gamma[16];  // batch_normalization_7_gamma
+	float conv1_beta[16];   // batch_normalization_7_beta
+	float conv1_mean[16];   // batch_normalization_7_mean
+	float conv1_var[16];    // batch_normalization_7_var
+	float conv1_gamma_post[16];  // batch_normalization_8_gamma
+	float conv1_beta_post[16];   // batch_normalization_8_beta
+	float conv1_mean_post[16];   // batch_normalization_8_mean
+	float conv1_var_post[16];    // batch_normalization_8_var
+	// Conv2: Pointwise 1x1x16x24
+	float conv2_weights[1][1][16][24];
+	float conv2_gamma[24];  // batch_normalization_9_gamma
+	float conv2_beta[24];   // batch_normalization_9_beta
+	float conv2_mean[24];   // batch_normalization_9_mean
+	float conv2_var[24];    // batch_normalization_9_var
+	float conv2_gamma_post[24];  // batch_normalization_10_gamma
+	float conv2_beta_post[24];   // batch_normalization_10_beta
+	float conv2_mean_post[24];   // batch_normalization_10_mean
+	float conv2_var_post[24];    // batch_normalization_10_var
+	// Dense (24 inputs to 3 classes)
+	float dense_weights[24][3];  // Stubbed dense_1_w
+	float dense_bias[3];         // dense_1_b
 };
 
-
-
+#endif
 
 
 

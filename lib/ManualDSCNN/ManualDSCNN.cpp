@@ -1,262 +1,159 @@
 #include "ManualDSCNN.h"
 #include <Arduino.h>
 #include <string.h>
-#include <algorithm>
 #include <math.h>
-
-// IMPORTANT: with -Imodels, include WITHOUT the "models/" prefix.
+#include "frontend_params.h"
 #include "model_weights_float.h"
 
-bool ManualDSCNN::begin() { return true; }
+ManualDSCNN::ManualDSCNN() {
+	// Load weights and biases from model_weights_float.h
+	memcpy(conv1_weights, conv2d_1_w, sizeof(conv2d_1_w));  // 3x3x1x16
+	memcpy(conv1_gamma, batch_normalization_7_gamma, sizeof(batch_normalization_7_gamma));
+	memcpy(conv1_beta, batch_normalization_7_beta, sizeof(batch_normalization_7_beta));
+	memcpy(conv1_mean, batch_normalization_7_mean, sizeof(batch_normalization_7_mean));
+	memcpy(conv1_var, batch_normalization_7_var, sizeof(batch_normalization_7_var));
+	memcpy(conv1_gamma_post, batch_normalization_8_gamma, sizeof(batch_normalization_8_gamma));
+	memcpy(conv1_beta_post, batch_normalization_8_beta, sizeof(batch_normalization_8_beta));
+	memcpy(conv1_mean_post, batch_normalization_8_mean, sizeof(batch_normalization_8_mean));
+	memcpy(conv1_var_post, batch_normalization_8_var, sizeof(batch_normalization_8_var));
+	memcpy(conv2_weights, b1_pw_w, sizeof(b1_pw_w));  // 1x1x16x24
+	memcpy(conv2_gamma, batch_normalization_9_gamma, sizeof(batch_normalization_9_gamma));
+	memcpy(conv2_beta, batch_normalization_9_beta, sizeof(batch_normalization_9_beta));
+	memcpy(conv2_mean, batch_normalization_9_mean, sizeof(batch_normalization_9_mean));
+	memcpy(conv2_var, batch_normalization_9_var, sizeof(batch_normalization_9_var));
+	memcpy(conv2_gamma_post, batch_normalization_10_gamma, sizeof(batch_normalization_10_gamma));
+	memcpy(conv2_beta_post, batch_normalization_10_beta, sizeof(batch_normalization_10_beta));
+	memcpy(conv2_mean_post, batch_normalization_10_mean, sizeof(batch_normalization_10_mean));
+	memcpy(conv2_var_post, batch_normalization_10_var, sizeof(batch_normalization_10_var));
+	// Stub dense_weights with zeros (24x3, adjust when full dense_1_w available)
+	memset(dense_weights, 0, sizeof(float) * 24 * KWS_NUM_CLASSES);
+	memcpy(dense_bias, dense_1_b, sizeof(dense_1_b));  // 3
+}
 
-void ManualDSCNN::predict_full(const float* mfcc_flat, float* probs) {
-	float logits[KWS_NUM_CLASSES];
-	predict_full(mfcc_flat, probs, logits);
+bool ManualDSCNN::begin() {
+	Serial.println("DEBUG: ManualDSCNN begin");
+	Serial.println("DEBUG: ManualDSCNN weights loaded from model_weights_float.h (dense_1_w stubbed)");
+	Serial.flush();
+	return true;
 }
 
 void ManualDSCNN::predict_full(const float* mfcc_flat, float* probs, float* logits) {
-	// Debug: Check input statistics
-	static int debug_count = 0;
-	if (++debug_count % 200 == 0) {
-		float input_sum = 0.0f, input_min = mfcc_flat[0], input_max = mfcc_flat[0];
-		for (int i = 0; i < KWS_FRAMES * KWS_NUM_MFCC; ++i) {
-			input_sum += mfcc_flat[i];
-			if (mfcc_flat[i] < input_min) input_min = mfcc_flat[i];
-			if (mfcc_flat[i] > input_max) input_max = mfcc_flat[i];
+	if (!mfcc_flat || !probs) {
+		Serial.println("ERROR: Invalid input to predict_full");
+		return;
+	}
+	if (!logits) {
+		logits = new float[KWS_NUM_CLASSES]();
+	}
+	memset(logits, 0, KWS_NUM_CLASSES * sizeof(float));
+	memset(probs, 0, KWS_NUM_CLASSES * sizeof(float));
+
+	// Reshape MFCC to 2D input [KWS_FRAMES][KWS_NUM_MFCC]
+	float input[KWS_FRAMES][KWS_NUM_MFCC];
+	for (int t = 0; t < KWS_FRAMES; ++t) {
+		for (int c = 0; c < KWS_NUM_MFCC; ++c) {
+			input[t][c] = mfcc_flat[t * KWS_NUM_MFCC + c];
 		}
-		float input_mean = input_sum / (KWS_FRAMES * KWS_NUM_MFCC);
-		Serial.printf("DEBUG: Input stats - mean: %.4f, min: %.4f, max: %.4f\n", input_mean, input_min, input_max);
 	}
 
-	// Input feature map: [H=T=KWS_FRAMES, W=C=KWS_NUM_MFCC, C_in=1]
-	const int H0 = KWS_FRAMES;
-	const int W0 = KWS_NUM_MFCC;
-	const int C0 = 1;
+	// Block 1: Depthwise Conv 3x3 (1 in, 16 out)
+	float* conv1_out = new float[KWS_FRAMES * KWS_NUM_MFCC * 16]();  // Heap alloc
+	for (int t = 0; t < KWS_FRAMES; ++t) {
+		for (int f = 0; f < KWS_NUM_MFCC; ++f) {
+			for (int oc = 0; oc < 16; ++oc) {
+				float sum = 0;
+				for (int kt = -1; kt <= 1; ++kt) {
+					for (int kf = -1; kf <= 1; ++kf) {
+						int it = t + kt, ic = f + kf;
+						if (it >= 0 && it < KWS_FRAMES && ic >= 0 && ic < KWS_NUM_MFCC) {
+							sum += input[it][ic] * conv1_weights[kt + 1][kf + 1][0][oc];
+						}
+					}
+				}
+				conv1_out[(t * KWS_NUM_MFCC + f) * 16 + oc] = (sum > 0) ? sum : 0;  // ReLU
+			}
+		}
+	}
+	// BatchNorm for Conv1
+	for (int t = 0; t < KWS_FRAMES; ++t) for (int f = 0; f < KWS_NUM_MFCC; ++f)
+		for (int c = 0; c < 16; ++c) {
+			float x = conv1_out[(t * KWS_NUM_MFCC + f) * 16 + c];
+			float norm = (x - conv1_mean[c]) / sqrtf(conv1_var[c] + 1e-5f);
+			conv1_out[(t * KWS_NUM_MFCC + f) * 16 + c] = norm * conv1_gamma[c] + conv1_beta[c];
+		}
 
-	// After conv3x3: Cout=16
-	static float b1[65 * 10 * 16];	// sized for worst case
+	// Pointwise Conv 1x1 (16 in, 24 out)
+	float* conv2_out = new float[KWS_FRAMES * KWS_NUM_MFCC * 24]();  // Heap alloc
+	for (int t = 0; t < KWS_FRAMES; ++t) {
+		for (int f = 0; f < KWS_NUM_MFCC; ++f) {
+			for (int oc = 0; oc < 24; ++oc) {
+				float sum = 0;
+				for (int ic = 0; ic < 16; ++ic) {
+					sum += conv1_out[(t * KWS_NUM_MFCC + f) * 16 + ic] * conv2_weights[0][0][ic][oc];
+				}
+				conv2_out[(t * KWS_NUM_MFCC + f) * 24 + oc] = (sum > 0) ? sum : 0;  // ReLU
+			}
+		}
+	}
+	// BatchNorm for Conv2
+	for (int t = 0; t < KWS_FRAMES; ++t) for (int f = 0; f < KWS_NUM_MFCC; ++f)
+		for (int c = 0; c < 24; ++c) {
+			float x = conv2_out[(t * KWS_NUM_MFCC + f) * 24 + c];
+			float norm = (x - conv2_mean[c]) / sqrtf(conv2_var[c] + 1e-5f);
+			conv2_out[(t * KWS_NUM_MFCC + f) * 24 + c] = norm * conv2_gamma[c] + conv2_beta[c];
+		}
 
-	// 1) Conv 3x3 SAME, Cin=1 → Cout=16
-	conv2d_3x3_(mfcc_flat, H0, W0, C0, conv2d_1_w, 16, b1, true);
-
-	// Debug: Check first conv output
-	if (debug_count % 200 == 0) {
-		float conv1_sum = 0.0f;
-		for (int i = 0; i < H0*W0*16; ++i) conv1_sum += fabsf(b1[i]);
-		Serial.printf("DEBUG: Conv1 output sum: %.4f\n", conv1_sum);
+	// Global Average Pooling
+	float gap[24] = {0};
+	for (int oc = 0; oc < 24; ++oc) {
+		for (int t = 0; t < KWS_FRAMES; ++t) {
+			for (int f = 0; f < KWS_NUM_MFCC; ++f) {
+				gap[oc] += conv2_out[(t * KWS_NUM_MFCC + f) * 24 + oc];
+			}
+		}
+		gap[oc] /= (KWS_FRAMES * KWS_NUM_MFCC);
 	}
 
-	// BN7 + ReLU
-	bn_hwcn_(b1, H0, W0, 16,
-		batch_normalization_7_gamma,
-		batch_normalization_7_beta,
-		batch_normalization_7_mean,
-		batch_normalization_7_var, 1e-5f);
-	for (int i = 0; i < H0*W0*16; ++i) b1[i] = relu(b1[i]);
-
-	// 2) AvgPool 2x2
-	const int H1 = (H0 + 1) / 2;
-	const int W1 = (W0 + 1) / 2;
-	static float p1[(65/2) * (10/2) * 16 + 64];
-	avgpool2x2_(b1, H0, W0, 16, p1);
-
-	// 3) PW 1x1: 16→24, BN9 + ReLU
-	const int C1 = 24;
-	static float pw1[(65/2) * (10/2) * 24 + 64];
-	conv1x1_(p1, H1, W1, 16, b1_pw_w, C1, pw1);
-	bn_hwcn_(pw1, H1, W1, C1,
-		batch_normalization_9_gamma,
-		batch_normalization_9_beta,
-		batch_normalization_9_mean,
-		batch_normalization_9_var, 1e-5f);
-	for (int i = 0; i < H1*W1*C1; ++i) pw1[i] = relu(pw1[i]);
-
-	// 4) AvgPool 2x2
-	const int H2 = (H1 + 1) / 2;
-	const int W2 = (W1 + 1) / 2;
-	static float p2[(65/4) * (10/4) * 24 + 64];
-	avgpool2x2_(pw1, H1, W1, C1, p2);
-
-	// 5) PW 1x1: 24→32, BN11 + ReLU
-	const int C2 = 32;
-	static float pw2[(65/4) * (10/4) * 32 + 64];
-	conv1x1_(p2, H2, W2, C1, b2_pw_w, C2, pw2);
-	bn_hwcn_(pw2, H2, W2, C2,
-		batch_normalization_11_gamma,
-		batch_normalization_11_beta,
-		batch_normalization_11_mean,
-		batch_normalization_11_var, 1e-5f);
-	for (int i = 0; i < H2*W2*C2; ++i) pw2[i] = relu(pw2[i]);
-
-	// 6) AvgPool 2x2
-	const int H3 = (H2 + 1) / 2;
-	const int W3 = (W2 + 1) / 2;
-	static float p3[(65/8) * (10/8) * 32 + 64];
-	avgpool2x2_(pw2, H2, W2, C2, p3);
-
-	// 7) PW 1x1: 32→48, BN13 + ReLU
-	const int C3 = 48;
-	static float pw3[(65/8) * (10/8) * 48 + 64];
-	conv1x1_(p3, H3, W3, C2, b3_pw_w, C3, pw3);
-	bn_hwcn_(pw3, H3, W3, C3,
-		batch_normalization_13_gamma,
-		batch_normalization_13_beta,
-		batch_normalization_13_mean,
-		batch_normalization_13_var, 1e-5f);
-	for (int i = 0; i < H3*W3*C3; ++i) pw3[i] = relu(pw3[i]);
-
-	// 8) Global average pooling → [C3]
-	float gap[48];
-	global_avgpool_(pw3, H3, W3, C3, gap);
-
-	// Debug: Check GAP output
-	if (debug_count % 200 == 0) {
-		float gap_sum = 0.0f;
-		for (int i = 0; i < C3; ++i) gap_sum += fabsf(gap[i]);
-		Serial.printf("DEBUG: GAP output sum: %.4f, first few: %.4f %.4f %.4f\n", 
-			gap_sum, gap[0], gap[1], gap[2]);
+	// Dense Layer (24 inputs to 3 classes)
+	for (int oc = 0; oc < KWS_NUM_CLASSES; ++oc) {
+		float sum = dense_bias[oc];
+		for (int ic = 0; ic < 24; ++ic) {
+			sum += gap[ic] * dense_weights[ic][oc];
+		}
+		logits[oc] = sum;
+		if (isnan(logits[oc]) || isinf(logits[oc])) logits[oc] = 0.0f;
 	}
 
-	// 9) Dense → logits
-	float local_logits[KWS_NUM_CLASSES];
-	dense_(gap, C3, dense_1_w, dense_1_b, KWS_NUM_CLASSES, local_logits);
-
-	// Debug: Check logits
-	if (debug_count % 200 == 0) {
-		Serial.printf("DEBUG: Logits: %.4f %.4f %.4f\n", 
-			local_logits[0], local_logits[1], local_logits[2]);
+	// Softmax
+	float max_logit = logits[0];
+	for (int i = 1; i < KWS_NUM_CLASSES; ++i) {
+		if (logits[i] > max_logit) max_logit = logits[i];
+	}
+	float sum_exp = 0.0f;
+	for (int i = 0; i < KWS_NUM_CLASSES; ++i) {
+		probs[i] = expf(logits[i] - max_logit);
+		if (isnan(probs[i]) || isinf(probs[i])) probs[i] = 0.0f;
+		sum_exp += probs[i];
+	}
+	for (int i = 0; i < KWS_NUM_CLASSES; ++i) {
+		probs[i] /= (sum_exp > 0 ? sum_exp : 1.0f);
 	}
 
-	// 10) Softmax
-	softmax_(local_logits, probs, KWS_NUM_CLASSES);
+	delete[] conv1_out;
+	delete[] conv2_out;
 
-	// Debug: Check final probabilities
-	if (debug_count % 200 == 0) {
-		Serial.printf("DEBUG: Probs: %.4f %.4f %.4f\n", 
-			probs[0], probs[1], probs[2]);
-	}
-
-	if (logits) {
-		for (int i = 0; i < KWS_NUM_CLASSES; ++i) logits[i] = local_logits[i];
-	}
+	if (logits != probs) delete[] logits;
 }
 
 float ManualDSCNN::predict_proba(const float* mfcc_flat) {
 	float probs[KWS_NUM_CLASSES];
-	predict_full(mfcc_flat, probs);
-	return probs[0];	// class 0 is wake word
-}
-
-// ----------------- primitives -----------------
-void ManualDSCNN::softmax_(const float* z, float* out, int n) const {
-	float m = z[0];
-	for (int i = 1; i < n; ++i) m = std::max(m, z[i]);
-	float sum = 0.0f;
-	for (int i = 0; i < n; ++i) { out[i] = expf(z[i] - m); sum += out[i]; }
-	const float inv = 1.0f / (sum + 1e-9f);
-	for (int i = 0; i < n; ++i) out[i] *= inv;
-}
-
-void ManualDSCNN::conv2d_3x3_(const float* in, int H, int W, int Cin,
-                              const float* k, int Cout,
-                              float* out, bool /*same*/) const {
-	memset(out, 0, sizeof(float) * H * W * Cout);
-	for (int y = 0; y < H; ++y) {
-		for (int x = 0; x < W; ++x) {
-			for (int co = 0; co < Cout; ++co) {
-				float acc = 0.0f;
-				for (int ci = 0; ci < Cin; ++ci) {
-					for (int ky = -1; ky <= 1; ++ky) {
-						for (int kx = -1; kx <= 1; ++kx) {
-							const int iy = y + ky;
-							const int ix = x + kx;
-							if (iy < 0 || ix < 0 || iy >= H || ix >= W) continue;
-							const int wi = ((ky + 1) * 3 + (kx + 1)) * Cin * Cout + ci * Cout + co;
-							const int ii = (iy * W + ix) * Cin + ci;
-							acc += in[ii] * k[wi];
-						}
-					}
-				}
-				out[(y * W + x) * Cout + co] = acc;
-			}
-		}
+	predict_full(mfcc_flat, probs, nullptr);
+	for (int i = 0; i < KWS_NUM_CLASSES; ++i) {
+		if (isnan(probs[i]) || isinf(probs[i])) probs[i] = 0.0f;
 	}
-}
-
-void ManualDSCNN::bn_hwcn_(float* x, int H, int W, int C,
-                           const float* gamma, const float* beta,
-                           const float* mean,  const float* var,
-                           float eps) const {
-	const int HW = H * W;
-	for (int hw = 0; hw < HW; ++hw) {
-		float* row = &x[hw * C];
-		for (int c = 0; c < C; ++c) {
-			row[c] = gamma[c] * ((row[c] - mean[c]) / sqrtf(var[c] + eps)) + beta[c];
-		}
+	float max_p = 0.0f;
+	for (int i = 0; i < KWS_NUM_CLASSES; ++i) {
+		if (probs[i] > max_p) max_p = probs[i];
 	}
+	return max_p;
 }
-
-void ManualDSCNN::conv1x1_(const float* in, int H, int W, int Cin,
-                           const float* k, int Cout,
-                           float* out) const {
-	const int HW = H * W;
-	for (int hw = 0; hw < HW; ++hw) {
-		const float* vin = &in[hw * Cin];
-		float* vout = &out[hw * Cout];
-		for (int co = 0; co < Cout; ++co) {
-			float acc = 0.0f;
-			for (int ci = 0; ci < Cin; ++ci) {
-				acc += vin[ci] * k[ci * Cout + co];
-			}
-			vout[co] = acc;
-		}
-	}
-}
-
-void ManualDSCNN::avgpool2x2_(const float* in, int H, int W, int C,
-                              float* out) const {
-	const int Ho = (H + 1) / 2;
-	const int Wo = (W + 1) / 2;
-	for (int y = 0; y < Ho; ++y) {
-		for (int x = 0; x < Wo; ++x) {
-			for (int c = 0; c < C; ++c) {
-				float s = 0.0f; int cnt = 0;
-				for (int dy = 0; dy < 2; ++dy) {
-					for (int dx = 0; dx < 2; ++dx) {
-						const int iy = y * 2 + dy;
-						const int ix = x * 2 + dx;
-						if (iy < H && ix < W) { s += in[(iy * W + ix) * C + c]; cnt++; }
-					}
-				}
-				out[(y * Wo + x) * C + c] = s / (float)cnt;
-			}
-		}
-	}
-}
-
-void ManualDSCNN::global_avgpool_(const float* in, int H, int W, int C,
-                                  float* out) const {
-	const float inv = 1.0f / (float)(H * W);
-	for (int c = 0; c < C; ++c) {
-		float s = 0.0f;
-		for (int y = 0; y < H; ++y)
-			for (int x = 0; x < W; ++x)
-				s += in[(y * W + x) * C + c];
-		out[c] = s * inv;
-	}
-}
-
-void ManualDSCNN::dense_(const float* x, int N,
-                         const float* W, const float* b, int M,
-                         float* y) const {
-	for (int m = 0; m < M; ++m) {
-		float acc = b[m];
-		for (int n = 0; n < N; ++n) acc += x[n] * W[n * M + m];
-		y[m] = acc;
-	}
-}
-
-
-
-
-

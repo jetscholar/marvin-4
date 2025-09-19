@@ -27,8 +27,12 @@ private:
 	float	last_mfcc_mean_abs_;
 
 	// mel & dct
-	float	mel_[KWS_NUM_MEL * (AP_FRAME_SAMPLES/2 + 1)];
+	float	mel_[KWS_NUM_MEL * AP_FFT_BINS];  // Fixed size to match loop
 	float	dct_[KWS_NUM_MFCC * KWS_NUM_MEL];
+
+	// Hann window and power spectrum
+	float	window_[AP_FRAME_SAMPLES];
+	float	power_[AP_FFT_BINS];
 
 	void	buildMel_();
 	void	buildDct_();

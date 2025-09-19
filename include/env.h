@@ -15,19 +15,19 @@
 #define OTA_PORT 3232
 
 // ===================== Debug / App =====================
-#define DEBUG_LEVEL 3
+#define DEBUG_LEVEL 2
 #define ENABLE_SERIAL_PLOT 0
 
 // Detection behavior
-#define DETECTION_COOLDOWN_MS 2000
+#define DETECTION_COOLDOWN_MS 1000
 #define COMMAND_LISTEN_DURATION_SEC 5
 #define COMMAND_CONFIDENCE_THRESHOLD 0.30f
 
 // ===================== Hardware Pins (ESP32-S3 DevKitC-1) =====================
 // I2S Microphone (INMP441)
-#define I2S_BCLK_PIN 4
-#define I2S_LRCL_PIN 5
-#define I2S_DOUT_PIN 6
+#define I2S_BCLK_PIN 18
+#define I2S_LRCL_PIN 10
+#define I2S_DOUT_PIN 21
 
 // I2C (AHT10)
 #define I2C_SDA_PIN 8
@@ -40,5 +40,11 @@
 // ===================== Wake Word Model =====================
 #define WAKE_CLASS_INDEX   0
 #define WAKE_PROB_THRESH   0.30f
+
+// Buzzer (LEDC)
+#define BUZZER_CHANNEL 0
+
+// smoke test mode
+#define MIC_SMOKE_TEST 0  // Set to 0 to disable, 1 to enable
 
 // Notes: AP_FRAME_SAMPLES / AP_HOP_SAMPLES come from frontend_params.h only.
